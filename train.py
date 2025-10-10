@@ -60,13 +60,20 @@ def _train(model, args):
             l3 = criterion(pred_img[2], label_img)
             loss_content = l1 + l2 + l3  # 损失函数
 
-            # signal_ndim=2 因为图像是二维的，normalized=False 说明不进行归一化，onesided=False 则是希望不要减少最后一个维度的大小
-            label_fft1 = torch.rfft(label_img4, signal_ndim=2, normalized=False, onesided=False)
-            pred_fft1 = torch.rfft(pred_img[0], signal_ndim=2, normalized=False, onesided=False)
-            label_fft2 = torch.rfft(label_img2, signal_ndim=2, normalized=False, onesided=False)
-            pred_fft2 = torch.rfft(pred_img[1], signal_ndim=2, normalized=False, onesided=False)
-            label_fft3 = torch.rfft(label_img, signal_ndim=2, normalized=False, onesided=False)
-            pred_fft3 = torch.rfft(pred_img[2], signal_ndim=2, normalized=False, onesided=False)
+            # Replace deprecated torch.rfft with torch.fft.fftn and convert complex to real-imag view
+            # Keep full spectrum (onesided=False equivalent) over last 2 dims (H, W), no normalization (default)
+            def fft2_as_real(x: torch.Tensor) -> torch.Tensor:
+                # x shape: [N, C, H, W]
+                c = torch.fft.fftn(x, s=None, dim=(-2, -1), norm=None)
+                # view as real-imag pairs, shape becomes [N, C, H, W, 2]
+                return torch.view_as_real(c)
+
+            label_fft1 = fft2_as_real(label_img4)
+            pred_fft1 = fft2_as_real(pred_img[0])
+            label_fft2 = fft2_as_real(label_img2)
+            pred_fft2 = fft2_as_real(pred_img[1])
+            label_fft3 = fft2_as_real(label_img)
+            pred_fft3 = fft2_as_real(pred_img[2])
 
             f1 = criterion(pred_fft1, label_fft1)  # 经过傅里叶变换之后的Loss损失
             f2 = criterion(pred_fft2, label_fft2)
