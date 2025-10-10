@@ -6,6 +6,7 @@ from utils import Adder
 from data import test_dataloader
 from skimage.metrics import peak_signal_noise_ratio
 import time
+from tqdm import tqdm
 
 
 def _eval(model, args):
@@ -20,7 +21,7 @@ def _eval(model, args):
         psnr_adder = Adder()
 
         # Hardware warm-up
-        for iter_idx, data in enumerate(dataloader):
+        for iter_idx, data in enumerate(tqdm(dataloader, desc='Warm-up', leave=False)):
             input_img, label_img, _ = data
             input_img = input_img.to(device)
             tm = time.time()
@@ -31,7 +32,7 @@ def _eval(model, args):
                 break
 
         # Main Evaluation
-        for iter_idx, data in enumerate(dataloader):
+        for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
             input_img, label_img, name = data
 
             input_img = input_img.to(device)
@@ -56,8 +57,9 @@ def _eval(model, args):
 
             psnr = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
             psnr_adder(psnr)
+            # tqdm already shows progress; keep print for logs
             print('%d iter PSNR: %.2f time: %f' % (iter_idx + 1, psnr, elapsed))
 
-        print('==========================================================')
-        print('The average PSNR is %.2f dB' % (psnr_adder.average()))
-        print("Average time: %f" % adder.average())
+    print('==========================================================')
+    print('The average PSNR is %.2f dB' % (psnr_adder.average()))
+    print("Average time: %f" % adder.average())

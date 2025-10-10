@@ -4,10 +4,10 @@ import numpy as np
 from PIL import Image as Image
 from data import PairCompose, PairRandomCrop, PairRandomHorizontalFilp, PairToTensor
 from torchvision.transforms import functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 
-def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True):
+def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, proportion: float = 1.0):
     image_dir = os.path.join(path, 'train')
 
     transform = None
@@ -23,9 +23,23 @@ def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True):
     # 1) Flat layout: <data_root>/train/{blur,sharp}
     # 2) Hierarchical layout: <data_root>/train/<scene>/{blur,sharp}
     if os.path.isdir(os.path.join(image_dir, 'blur')) and os.path.isdir(os.path.join(image_dir, 'sharp')):
-        dataset = DeblurDataset(image_dir, transform=transform)
+        base_dataset = DeblurDataset(image_dir, transform=transform)
     else:
-        dataset = HierarchicalDeblurDataset(image_dir, transform=transform)
+        base_dataset = HierarchicalDeblurDataset(image_dir, transform=transform)
+
+    # Apply proportion subset if needed
+    if proportion is None:
+        proportion = 1.0
+    proportion = max(0.0, min(1.0, float(proportion)))
+    if proportion <= 0:
+        raise ValueError('train_dataloader proportion must be > 0')
+    if proportion < 1.0:
+        total = len(base_dataset)
+        count = max(1, int(total * proportion))
+        idxs = list(range(count))
+        dataset = Subset(base_dataset, idxs)
+    else:
+        dataset = base_dataset
 
     dataloader = DataLoader(
         dataset,

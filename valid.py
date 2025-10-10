@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 from torchvision.transforms import functional as F
 from data import valid_dataloader
 from utils import Adder
@@ -14,7 +15,7 @@ def _valid(model, args, ep):
 
     with torch.no_grad():
         print('Start GoPro Evaluation')  # 对原始数据集进行评估
-        for idx, data in enumerate(gopro):  # 枚举数据
+        for idx, data in enumerate(tqdm(gopro, desc='Validate', leave=False)):  # 枚举数据
             input_img, label_img = data
             input_img = input_img.to(device)
             if not os.path.exists(os.path.join(args.result_dir, '%d' % (ep))):
@@ -29,8 +30,9 @@ def _valid(model, args, ep):
             psnr = peak_signal_noise_ratio(p_numpy, label_numpy, data_range=1)  # 计算PSNR
             #         print("psnr==", psnr)  # 已修改
 
-            psnr_adder(psnr)
-            print('\r%03d' % idx, end=' ')
+        psnr_adder(psnr)
+        # tqdm shows progress; keep concise index print compatible with notebooks
+        print('\r%03d' % idx, end=' ')
 
     print('\n')
     model.train()

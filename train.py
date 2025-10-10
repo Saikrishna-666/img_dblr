@@ -1,5 +1,6 @@
 import os
 import torch
+from tqdm import tqdm
 
 from data import train_dataloader
 from utils import Adder, Timer, check_lr
@@ -15,7 +16,14 @@ def _train(model, args):
                                  lr=args.learning_rate,
                                  weight_decay=args.weight_decay)
 
-    dataloader = train_dataloader(args.data_dir, args.batch_size, args.num_worker)
+    dataloader = train_dataloader(args.data_dir, args.batch_size, args.num_worker, proportion=args.train_proportion)
+    # Print number of training samples selected
+    try:
+        train_len = len(dataloader.dataset)
+    except Exception:
+        # Fallback if dataset is wrapped or non-standard
+        train_len = sum(1 for _ in dataloader)
+    print(f"Training samples: {train_len}")
     # print("dataloader=", dataloader)  # <torch.utils.data.dataloader.DataLoader object at 0x0000023BE5971AF0>
     max_iter = len(dataloader)  # 最大迭代次数是数据的长度,因为每次迭代四次
     # print("len(dataloader)=", max_iter)  # len(dataloader)= 526
@@ -45,7 +53,8 @@ def _train(model, args):
 
         epoch_timer.tic()
         iter_timer.tic()
-        for iter_idx, batch_data in enumerate(dataloader):
+        progress = tqdm(dataloader, desc=f"Epoch {epoch_idx}", leave=False)
+        for iter_idx, batch_data in enumerate(progress):
 
             input_img, label_img = batch_data
             input_img = input_img.to(device)
@@ -90,6 +99,12 @@ def _train(model, args):
             epoch_pixel_adder(loss_content.item())  # 内容损失
             epoch_fft_adder(loss_fft.item())  # 快速傅里叶变换损失
             # print("'iter_idx + 1'=", iter_idx + 1)
+
+            # Update tqdm status bar
+            progress.set_postfix({
+                'pix': f"{iter_pixel_adder.average():.4f}",
+                'fft': f"{iter_fft_adder.average():.4f}"
+            })
 
             if (iter_idx + 1) % args.print_freq == 0:  # 每100次迭代保存一次临时的model，显示一次
                 lr = check_lr(optimizer)  # 检查lr
