@@ -32,13 +32,39 @@ def _train(model, args):
 
     epoch = 1
     if args.resume:
-        state = torch.load(args.resume)
-        epoch = state['epoch']
-        optimizer.load_state_dict(state['optimizer'])  # 加载优化器的状态
-        scheduler.load_state_dict(state['scheduler'])
-        model.load_state_dict(state['model'])  # 加载模型
-        print('Resume from %d' % epoch)
-        epoch += 1
+        state = torch.load(args.resume, map_location=device)
+        # Three possible formats:
+        # 1) Full checkpoint dict: {'model': sd, 'optimizer': sd, 'scheduler': sd, 'epoch': int}
+        # 2) Weights-only dict under 'model': {'model': sd}
+        # 3) Raw state_dict: {...params...}
+        if isinstance(state, dict) and 'model' in state and isinstance(state['model'], dict):
+            model.load_state_dict(state['model'])
+            restored = ['model']
+            if 'optimizer' in state and isinstance(state['optimizer'], dict):
+                try:
+                    optimizer.load_state_dict(state['optimizer'])
+                    restored.append('optimizer')
+                except Exception:
+                    pass
+            if 'scheduler' in state and isinstance(state['scheduler'], dict):
+                try:
+                    scheduler.load_state_dict(state['scheduler'])
+                    restored.append('scheduler')
+                except Exception:
+                    pass
+            if 'epoch' in state and isinstance(state['epoch'], int):
+                epoch = state['epoch'] + 1
+                restored.append('epoch')
+            else:
+                epoch = 1
+            print('Resume: restored ' + ', '.join(restored))
+        elif isinstance(state, dict):
+            # Assume it's a plain model state_dict
+            model.load_state_dict(state)
+            epoch = 1
+            print('Resume: restored model (weights-only state_dict)')
+        else:
+            raise ValueError('Unrecognized checkpoint format for resume: %s' % type(state))
 
     writer = SummaryWriter()  # 实例化摘要和文件
     epoch_pixel_adder = Adder()
