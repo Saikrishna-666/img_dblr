@@ -65,8 +65,16 @@ def test_dataloader(path, batch_size=1, num_workers=0):
 
 
 def valid_dataloader(path, batch_size=1, num_workers=0):
+    # Use 'test' split for validation, support both flat and hierarchical layouts
+    split_dir = os.path.join(path, 'test')
+
+    if os.path.isdir(os.path.join(split_dir, 'blur')) and os.path.isdir(os.path.join(split_dir, 'sharp')):
+        dataset = DeblurDataset(split_dir)
+    else:
+        dataset = HierarchicalDeblurDataset(split_dir)
+
     dataloader = DataLoader(
-        DeblurDataset(os.path.join(path, 'valid')),  # os.path.join(path, 'valid')=dataset/GOPRO/valid/
+        dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers

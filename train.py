@@ -145,9 +145,10 @@ def _train(model, args):
                 iter_fft_adder.reset()
         overwrite_name = os.path.join(args.model_save_dir, 'model.pkl')
         torch.save({'model': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'scheduler': scheduler.state_dict(),
-                    'epoch': epoch_idx}, overwrite_name)
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
+                'epoch': epoch_idx}, overwrite_name)
+        print(f"[Checkpoint] Overwrite latest: {overwrite_name}")
 
         if epoch_idx % args.save_freq == 0:  # save_freq=100，每100个周期保存一次模型
             save_name = os.path.join(args.model_save_dir, 'model_%d.pkl' % epoch_idx)
@@ -155,6 +156,7 @@ def _train(model, args):
                         'optimizer': optimizer.state_dict(),
                         'scheduler': scheduler.state_dict(),
                         'epoch': epoch_idx}, save_name)
+            print(f"[Checkpoint] Saved periodic: {save_name}")
         print("EPOCH: %02d\nElapsed time: %4.2f Epoch Pixel Loss: %7.4f Epoch FFT Loss: %7.4f" % (
             epoch_idx, epoch_timer.toc(), epoch_pixel_adder.average(), epoch_fft_adder.average()))
         epoch_fft_adder.reset()
@@ -167,6 +169,9 @@ def _train(model, args):
             print('%03d epoch \n Average GOPRO PSNR %.2f dB' % (epoch_idx, val_gopro))  # 100个周期的平均峰值信噪比
             writer.add_scalar('PSNR_GOPRO', val_gopro, epoch_idx)  # 将所需的数据保存在文件里进行可视化，用来画图
             if val_gopro >= best_psnr:  # 平均的峰值信噪比大于-1,就可以保存模型
-                torch.save({'model': model.state_dict()}, os.path.join(args.model_save_dir, 'Best.pkl'))
+                best_path = os.path.join(args.model_save_dir, 'Best.pkl')
+                torch.save({'model': model.state_dict()}, best_path)
+                print(f"[Checkpoint] Saved best: {best_path}")
     save_name = os.path.join(args.model_save_dir, 'Final.pkl')
     torch.save({'model': model.state_dict()}, save_name)
+    print(f"[Checkpoint] Saved final: {save_name}")
