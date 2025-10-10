@@ -36,7 +36,7 @@ if __name__ == '__main__':
 
     # Directories
     parser.add_argument('--model_name', default='MRDNet', choices=['MRDNet', 'MRDNetPlus'], type=str)
-    parser.add_argument('--data_dir', type=str, default='dataset/GOPRO')
+    parser.add_argument('--data_dir', type=str, default='/kaggle/input/go-pro/GOPRO')
     parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
 
     # Train
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='weights/MRDNet.pkl')
+    parser.add_argument('--test_model', type=str, default='/kaggle/input/mrdnet-checkpoint/Pretrained Model/MRDNet.pkl')
     parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
 
     args = parser.parse_args()
