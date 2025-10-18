@@ -21,9 +21,12 @@ def main(args):
         os.makedirs(args.result_dir)
 
     model = build_net(args.model_name)
-    # print(model)
+    # Multi-GPU support
     if torch.cuda.is_available():
-        model.cuda()
+        if torch.cuda.device_count() > 1:
+            print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
+            model = torch.nn.DataParallel(model)
+        model = model.cuda()
     if args.mode == 'train':
         _train(model, args)
 

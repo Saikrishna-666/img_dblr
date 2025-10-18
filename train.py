@@ -44,7 +44,23 @@ def _train(model, args):
         # 2) Weights-only dict under 'model': {'model': sd}
         # 3) Raw state_dict: {...params...}
         if isinstance(state, dict) and 'model' in state and isinstance(state['model'], dict):
-            model.load_state_dict(state['model'])
+            # Handle DataParallel 'module.' prefix differences
+            def _load_model(sd):
+                try:
+                    model.load_state_dict(sd)
+                except RuntimeError:
+                    # Try removing/adding 'module.' prefix
+                    from collections import OrderedDict
+                    new_sd = OrderedDict()
+                    if next(iter(sd)).startswith('module.'):
+                        for k, v in sd.items():
+                            new_sd[k.replace('module.', '', 1)] = v
+                    else:
+                        for k, v in sd.items():
+                            new_sd['module.' + k] = v
+                    model.load_state_dict(new_sd)
+
+            _load_model(state['model'])
             restored = ['model']
             if 'optimizer' in state and isinstance(state['optimizer'], dict):
                 try:
@@ -66,7 +82,20 @@ def _train(model, args):
             print('Resume: restored ' + ', '.join(restored))
         elif isinstance(state, dict):
             # Assume it's a plain model state_dict
-            model.load_state_dict(state)
+            def _load_model_raw(sd):
+                try:
+                    model.load_state_dict(sd)
+                except RuntimeError:
+                    from collections import OrderedDict
+                    new_sd = OrderedDict()
+                    if next(iter(sd)).startswith('module.'):
+                        for k, v in sd.items():
+                            new_sd[k.replace('module.', '', 1)] = v
+                    else:
+                        for k, v in sd.items():
+                            new_sd['module.' + k] = v
+                    model.load_state_dict(new_sd)
+            _load_model_raw(state)
             epoch = 1
             print('Resume: restored model (weights-only state_dict)')
         else:
