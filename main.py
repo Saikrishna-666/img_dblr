@@ -57,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_proportion', type=float, default=1.0, help='Proportion of training data to use (0-1]')
     parser.add_argument('--checkpoint_dir', type=str, default='', help='Directory to save checkpoints; overrides default results/<model_name>/weights')
     parser.add_argument('--crop_size', type=int, default=256, help='Training crop size. Set 0 to disable cropping and use full images')
+    parser.add_argument('--use_amp', type=bool, default=True, help='Use mixed precision (AMP) to save memory')
 
     # Test
     parser.add_argument('--test_model', type=str, default='/kaggle/input/mrdnet-checkpoint/Pretrained Model/MRDNet.pkl')

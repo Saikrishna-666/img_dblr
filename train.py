@@ -7,6 +7,7 @@ from utils import Adder, Timer, check_lr
 from torch.utils.tensorboard import SummaryWriter
 from valid import _valid
 import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler
 
 
 def _train(model, args):
@@ -102,6 +103,9 @@ def _train(model, args):
             raise ValueError('Unrecognized checkpoint format for resume: %s' % type(state))
 
     writer = SummaryWriter()  # 实例化摘要和文件
+    # Mixed precision scaler (enabled when CUDA is available and user allows AMP)
+    use_amp = torch.cuda.is_available() and getattr(args, 'use_amp', True)
+    scaler = GradScaler(enabled=use_amp)
     epoch_pixel_adder = Adder()
     epoch_fft_adder = Adder()
     iter_pixel_adder = Adder()
@@ -122,13 +126,14 @@ def _train(model, args):
             label_img = label_img.to(device)  # 将数据加载到指定的设备上
 
             optimizer.zero_grad()  # 将梯度置零
-            pred_img = model(input_img)  # 将张量输入模型
-            label_img2 = F.interpolate(label_img, scale_factor=0.5, mode='bilinear')  # 下采样
-            label_img4 = F.interpolate(label_img, scale_factor=0.25, mode='bilinear')  # 下采样四倍
-            l1 = criterion(pred_img[0], label_img4)  # 计算损失函数
-            l2 = criterion(pred_img[1], label_img2)
-            l3 = criterion(pred_img[2], label_img)
-            loss_content = l1 + l2 + l3  # 损失函数
+            with autocast(enabled=use_amp):
+                pred_img = model(input_img)  # 将张量输入模型
+                label_img2 = F.interpolate(label_img, scale_factor=0.5, mode='bilinear')  # 下采样
+                label_img4 = F.interpolate(label_img, scale_factor=0.25, mode='bilinear')  # 下采样四倍
+                l1 = criterion(pred_img[0], label_img4)  # 计算损失函数
+                l2 = criterion(pred_img[1], label_img2)
+                l3 = criterion(pred_img[2], label_img)
+                loss_content = l1 + l2 + l3  # 损失函数
 
             # Replace deprecated torch.rfft with torch.fft.fftn and convert complex to real-imag view
             # Keep full spectrum (onesided=False equivalent) over last 2 dims (H, W), no normalization (default)
@@ -150,9 +155,15 @@ def _train(model, args):
             f3 = criterion(pred_fft3, label_fft3)
             loss_fft = f1 + f2 + f3
 
-            loss = loss_content + 0.1 * loss_fft  # 总的loss损失,原来是0.1倍的loss_fft
-            loss.backward()  # 计算当前张量的梯度
-            optimizer.step()  # 更新所有的参数
+            with autocast(enabled=use_amp):
+                loss = loss_content + 0.1 * loss_fft  # 总的loss损失,原来是0.1倍的loss_fft
+            if use_amp:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()  # 计算当前张量的梯度
+                optimizer.step()  # 更新所有的参数
 
             iter_pixel_adder(loss_content.item())  # 每次迭代之后
             iter_fft_adder(loss_fft.item())
