@@ -16,7 +16,13 @@ def _train(model, args):
                                  lr=args.learning_rate,
                                  weight_decay=args.weight_decay)
 
-    dataloader = train_dataloader(args.data_dir, args.batch_size, args.num_worker, proportion=args.train_proportion)
+    dataloader = train_dataloader(
+        args.data_dir,
+        args.batch_size,
+        args.num_worker,
+        proportion=args.train_proportion,
+        crop_size=args.crop_size
+    )
     # Print number of training samples selected
     try:
         train_len = len(dataloader.dataset)

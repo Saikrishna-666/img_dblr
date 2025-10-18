@@ -7,18 +7,16 @@ from torchvision.transforms import functional as F
 from torch.utils.data import Dataset, DataLoader, Subset
 
 
-def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, proportion: float = 1.0):
+def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, proportion: float = 1.0, crop_size: int = 256):
     image_dir = os.path.join(path, 'train')
 
     transform = None
     if use_transform:
-        transform = PairCompose(
-            [
-                PairRandomCrop(256),
-                PairRandomHorizontalFilp(),
-                PairToTensor()
-            ]
-        )
+        transforms_list = []
+        if crop_size and crop_size > 0:
+            transforms_list.append(PairRandomCrop(crop_size))
+        transforms_list.extend([PairRandomHorizontalFilp(), PairToTensor()])
+        transform = PairCompose(transforms_list)
     # Choose dataset implementation based on folder layout:
     # 1) Flat layout: <data_root>/train/{blur,sharp}
     # 2) Hierarchical layout: <data_root>/train/<scene>/{blur,sharp}
