@@ -152,7 +152,7 @@ class HierarchicalDeblurDataset(Dataset):
                     self.names.append(os.path.join(scene, name))
 
         if len(self.pairs) == 0:
-            raise ValueError(f'No images found under {split_root}. Expected structure: <split>/<scene>/{'{'}blur,sharp{'}'}/>')
+            raise ValueError(f"No images found under {split_root}. Expected structure: <split>/<scene>/{{blur,sharp}}/")
 
     def __len__(self):
         return len(self.pairs)
