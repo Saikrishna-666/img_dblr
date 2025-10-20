@@ -52,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_freq', type=int, default=10)
     parser.add_argument('--valid_freq', type=int, default=10)
     parser.add_argument('--resume', type=str, default='')
+    parser.add_argument('--start_epoch', type=int, default=1, help='Epoch to start from when resuming from weights-only file')
     parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
     parser.add_argument('--train_proportion', type=float, default=1.0, help='Proportion of training data to use (0-1]')

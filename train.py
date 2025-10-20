@@ -78,7 +78,7 @@ def _train(model, args):
                 epoch = state['epoch'] + 1
                 restored.append('epoch')
             else:
-                epoch = 1
+                epoch = max(1, int(getattr(args, 'start_epoch', 1)))
             print('Resume: restored ' + ', '.join(restored))
         elif isinstance(state, dict):
             # Assume it's a plain model state_dict
@@ -96,7 +96,8 @@ def _train(model, args):
                             new_sd['module.' + k] = v
                     model.load_state_dict(new_sd)
             _load_model_raw(state)
-            epoch = 1
+            # Use explicit start_epoch if provided
+            epoch = max(1, int(getattr(args, 'start_epoch', 1)))
             print('Resume: restored model (weights-only state_dict)')
         else:
             raise ValueError('Unrecognized checkpoint format for resume: %s' % type(state))
