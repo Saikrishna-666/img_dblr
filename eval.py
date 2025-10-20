@@ -10,9 +10,30 @@ from tqdm import tqdm
 
 
 def _eval(model, args):
-    state_dict = torch.load(args.test_model)
-    model.load_state_dict(state_dict['model'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    state = torch.load(args.test_model, map_location=device)
+    # Accept formats: {'model': sd} or raw sd
+    def _load_model(sd):
+        try:
+            model.load_state_dict(sd)
+        except RuntimeError:
+            from collections import OrderedDict
+            new_sd = OrderedDict()
+            first_key = next(iter(sd))
+            if first_key.startswith('module.'):
+                for k, v in sd.items():
+                    new_sd[k.replace('module.', '', 1)] = v
+            else:
+                for k, v in sd.items():
+                    new_sd['module.' + k] = v
+            model.load_state_dict(new_sd)
+
+    if isinstance(state, dict) and 'model' in state:
+        _load_model(state['model'])
+    elif isinstance(state, dict):
+        _load_model(state)
+    else:
+        raise ValueError(f"Unrecognized checkpoint format at {args.test_model}")
     dataloader = test_dataloader(args.data_dir, batch_size=1, num_workers=0)
     torch.cuda.empty_cache()  # pytorch中的显存机制
     adder = Adder()
@@ -32,7 +53,9 @@ def _eval(model, args):
                 break
 
         # Main Evaluation
-        for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
+    saved_count = 0
+    save_limit = getattr(args, 'save_limit', 0) or 0
+    for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
             input_img, label_img, name = data
 
             input_img = input_img.to(device)
@@ -49,11 +72,12 @@ def _eval(model, args):
             pred_numpy = pred_clip.squeeze(0).cpu().numpy()
             label_numpy = label_img.squeeze(0).cpu().numpy()
 
-            if args.save_image:
+            if args.save_image and (save_limit == 0 or saved_count < save_limit):
                 save_name = os.path.join(args.result_dir, name[0])
                 pred_clip += 0.5 / 255
                 pred = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
                 pred.save(save_name)
+                saved_count += 1
 
             psnr = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
             psnr_adder(psnr)

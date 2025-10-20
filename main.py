@@ -63,6 +63,7 @@ if __name__ == '__main__':
     # Test
     parser.add_argument('--test_model', type=str, default='/kaggle/input/mrdnet-checkpoint/Pretrained Model/MRDNet.pkl')
     parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
+    parser.add_argument('--save_limit', type=int, default=0, help='If > 0, save at most this many images during evaluation')
 
     args = parser.parse_args()
     args.model_save_dir = os.path.join('results/', args.model_name, 'weights/')
