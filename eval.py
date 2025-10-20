@@ -53,16 +53,19 @@ def _eval(model, args):
                 break
 
         # Main Evaluation
-    saved_count = 0
-    save_limit = getattr(args, 'save_limit', 0) or 0
-    for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
+        saved_count = 0
+        save_limit = getattr(args, 'save_limit', 0) or 0
+        for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
             input_img, label_img, name = data
 
-            input_img = input_img.to(device)
+            input_img = input_img.to(device, non_blocking=True)
 
             tm = time.time()
 
-            pred = model(input_img)[2]
+            # Enable autocast for eval to reduce memory
+            use_amp = torch.cuda.is_available() and getattr(args, 'use_amp', True)
+            with torch.amp.autocast('cuda', enabled=use_amp):
+                pred = model(input_img)[2]
 
             elapsed = time.time() - tm
             adder(elapsed)
@@ -79,14 +82,17 @@ def _eval(model, args):
                 if save_dir and not os.path.exists(save_dir):
                     os.makedirs(save_dir, exist_ok=True)
                 pred_clip += 0.5 / 255
-                pred = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
-                pred.save(save_name)
+                pred_img = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
+                pred_img.save(save_name)
                 saved_count += 1
 
             psnr = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
             psnr_adder(psnr)
             # tqdm already shows progress; keep print for logs
             print('%d iter PSNR: %.2f time: %f' % (iter_idx + 1, psnr, elapsed))
+
+            # Free per-iteration tensors after PSNR computation
+            del pred, pred_clip, pred_numpy
 
     print('==========================================================')
     print('The average PSNR is %.2f dB' % (psnr_adder.average()))

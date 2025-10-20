@@ -21,9 +21,9 @@ def main(args):
         os.makedirs(args.result_dir)
 
     model = build_net(args.model_name)
-    # Multi-GPU support
+    # Multi-GPU support: only wrap with DataParallel during training.
     if torch.cuda.is_available():
-        if torch.cuda.device_count() > 1:
+        if args.mode == 'train' and torch.cuda.device_count() > 1:
             print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
             model = torch.nn.DataParallel(model)
         model = model.cuda()
