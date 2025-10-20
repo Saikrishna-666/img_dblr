@@ -1,10 +1,29 @@
 import os
-import torch
-import numpy as np
 from PIL import Image as Image
-from data import PairCompose, PairRandomCrop, PairRandomHorizontalFilp, PairToTensor
-from torchvision.transforms import functional as F
 from torch.utils.data import Dataset, DataLoader, Subset
+from torchvision.transforms import functional as F
+from data import PairCompose, PairRandomCrop, PairRandomHorizontalFilp, PairToTensor
+
+
+def _is_image_file(name: str) -> bool:
+    ext = name.split('.')[-1].lower()
+    return ext in ['png', 'jpg', 'jpeg']
+
+
+def _has_flat_split(root: str) -> bool:
+    return os.path.isdir(os.path.join(root, 'blur')) and os.path.isdir(os.path.join(root, 'sharp'))
+
+
+def _has_hierarchical_split(root: str) -> bool:
+    if not os.path.isdir(root):
+        return False
+    for scene in os.listdir(root):
+        scene_path = os.path.join(root, scene)
+        if not os.path.isdir(scene_path):
+            continue
+        if _has_flat_split(scene_path):
+            return True
+    return False
 
 
 def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, proportion: float = 1.0, crop_size: int = 256):
@@ -17,10 +36,8 @@ def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, pro
             transforms_list.append(PairRandomCrop(crop_size))
         transforms_list.extend([PairRandomHorizontalFilp(), PairToTensor()])
         transform = PairCompose(transforms_list)
-    # Choose dataset implementation based on folder layout:
-    # 1) Flat layout: <data_root>/train/{blur,sharp}
-    # 2) Hierarchical layout: <data_root>/train/<scene>/{blur,sharp}
-    if os.path.isdir(os.path.join(image_dir, 'blur')) and os.path.isdir(os.path.join(image_dir, 'sharp')):
+
+    if _has_flat_split(image_dir):
         base_dataset = DeblurDataset(image_dir, transform=transform)
     else:
         base_dataset = HierarchicalDeblurDataset(image_dir, transform=transform)
@@ -49,43 +66,35 @@ def train_dataloader(path, batch_size=64, num_workers=0, use_transform=True, pro
     return dataloader
 
 
-def test_dataloader(path, batch_size=1, num_workers=0):
-    image_dir = os.path.join(path, 'test')
-    dataloader = DataLoader(
-        DeblurDataset(image_dir, is_test=True),
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
+def _choose_eval_split(path: str):
+    candidates = [os.path.join(path, 'test'), os.path.join(path, 'valid'), path]
+    for c in candidates:
+        if _has_flat_split(c):
+            return c, True
+        if _has_hierarchical_split(c):
+            return c, False
+    raise FileNotFoundError(f"No split with blur/sharp found under {path}. Tried: {candidates}")
 
-    return dataloader
+
+def test_dataloader(path, batch_size=1, num_workers=0):
+    split_root, is_flat = _choose_eval_split(path)
+    dataset = DeblurDataset(split_root, is_test=True) if is_flat else HierarchicalDeblurDataset(split_root, is_test=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
 
 
 def valid_dataloader(path, batch_size=1, num_workers=0):
-    # Use 'test' split for validation, support both flat and hierarchical layouts
-    split_dir = os.path.join(path, 'test')
-
-    if os.path.isdir(os.path.join(split_dir, 'blur')) and os.path.isdir(os.path.join(split_dir, 'sharp')):
-        dataset = DeblurDataset(split_dir)
-    else:
-        dataset = HierarchicalDeblurDataset(split_dir)
-
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
-
-    return dataloader
+    split_root, is_flat = _choose_eval_split(path)
+    dataset = DeblurDataset(split_root) if is_flat else HierarchicalDeblurDataset(split_root)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
 class DeblurDataset(Dataset):
-    def __init__(self, image_dir, transform=None, is_test=False):
+    def __init__(self, image_dir, transform=None, is_test: bool = False):
         self.image_dir = image_dir
-        self.image_list = os.listdir(os.path.join(image_dir, 'blur/'))  # 模糊图片  image_dir=dataset/GOPRO/valid/blur/
-        self._check_image(self.image_list)  # 检查图片的格式
+        blur_dir = os.path.join(image_dir, 'blur')
+        if not os.path.isdir(blur_dir):
+            raise FileNotFoundError(f"Blur dir not found: {blur_dir}")
+        self.image_list = [f for f in os.listdir(blur_dir) if _is_image_file(f)]
         self.image_list.sort()
         self.transform = transform
         self.is_test = is_test
@@ -94,8 +103,9 @@ class DeblurDataset(Dataset):
         return len(self.image_list)
 
     def __getitem__(self, idx):
-        image = Image.open(os.path.join(self.image_dir, 'blur', self.image_list[idx]))
-        label = Image.open(os.path.join(self.image_dir, 'sharp', self.image_list[idx]))
+        blur_name = self.image_list[idx]
+        image = Image.open(os.path.join(self.image_dir, 'blur', blur_name))
+        label = Image.open(os.path.join(self.image_dir, 'sharp', blur_name))
 
         if self.transform:
             image, label = self.transform(image, label)
@@ -103,36 +113,28 @@ class DeblurDataset(Dataset):
             image = F.to_tensor(image)
             label = F.to_tensor(label)
         if self.is_test:
-            name = self.image_list[idx]
-            return image, label, name
+            return image, label, blur_name
         return image, label
-
-    @staticmethod
-    def _check_image(lst):
-        for x in lst:
-            splits = x.split('.')
-            if splits[-1] not in ['png', 'jpg', 'jpeg']:
-                raise ValueError
 
 
 class HierarchicalDeblurDataset(Dataset):
     """
-    Train dataset that supports multiple scene subfolders under <train>.
+    Dataset that supports multiple scene subfolders under a split.
     Expected layout:
-      <data_root>/train/<scene>/{blur,sharp}/<filename>
-    Only used for training; valid/test keep using DeblurDataset.
+      <split_root>/<scene>/{blur,sharp}/<filename>
     """
 
-    def __init__(self, train_root, transform=None):
+    def __init__(self, split_root: str, transform=None, is_test: bool = False):
         self.transform = transform
+        self.is_test = is_test
         self.pairs = []  # list of (blur_path, sharp_path)
+        self.names = []  # relative names for saving (scene/filename)
 
-        if not os.path.isdir(train_root):
-            raise ValueError('Train root not found: %s' % train_root)
+        if not os.path.isdir(split_root):
+            raise ValueError(f'Split root not found: {split_root}')
 
-        # Iterate scene folders
-        for scene in sorted(os.listdir(train_root)):
-            scene_path = os.path.join(train_root, scene)
+        for scene in sorted(os.listdir(split_root)):
+            scene_path = os.path.join(split_root, scene)
             if not os.path.isdir(scene_path):
                 continue
             blur_dir = os.path.join(scene_path, 'blur')
@@ -140,16 +142,17 @@ class HierarchicalDeblurDataset(Dataset):
             if not (os.path.isdir(blur_dir) and os.path.isdir(sharp_dir)):
                 continue
 
-            img_list = [f for f in os.listdir(blur_dir) if f.split('.')[-1].lower() in ['png', 'jpg', 'jpeg']]
+            img_list = [f for f in os.listdir(blur_dir) if _is_image_file(f)]
             img_list.sort()
             for name in img_list:
                 blur_path = os.path.join(blur_dir, name)
                 sharp_path = os.path.join(sharp_dir, name)
                 if os.path.isfile(blur_path) and os.path.isfile(sharp_path):
                     self.pairs.append((blur_path, sharp_path))
+                    self.names.append(os.path.join(scene, name))
 
         if len(self.pairs) == 0:
-            raise ValueError('No training images found under %s. Ensure structure is train/<scene>/{blur,sharp}.' % train_root)
+            raise ValueError(f'No images found under {split_root}. Expected structure: <split>/<scene>/{'{'}blur,sharp{'}'}/>')
 
     def __len__(self):
         return len(self.pairs)
@@ -164,4 +167,7 @@ class HierarchicalDeblurDataset(Dataset):
         else:
             image = F.to_tensor(image)
             label = F.to_tensor(label)
+        if self.is_test:
+            name = self.names[idx] if idx < len(self.names) else os.path.basename(blur_path)
+            return image, label, name
         return image, label

@@ -74,6 +74,10 @@ def _eval(model, args):
 
             if args.save_image and (save_limit == 0 or saved_count < save_limit):
                 save_name = os.path.join(args.result_dir, name[0])
+                # Create subdirectories if name contains path segments (e.g., scene/filename.png)
+                save_dir = os.path.dirname(save_name)
+                if save_dir and not os.path.exists(save_dir):
+                    os.makedirs(save_dir, exist_ok=True)
                 pred_clip += 0.5 / 255
                 pred = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
                 pred.save(save_name)
