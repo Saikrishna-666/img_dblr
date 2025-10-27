@@ -101,8 +101,9 @@ def iwt_init(x):
     x3 = x[out_batch * 2:out_batch * 3, :, :, :] / 2
     x4 = x[out_batch * 3:out_batch * 4, :, :, :] / 2
 
+    # Allocate output on the same device/dtype as input for CPU/Multi-GPU compatibility
     h = torch.zeros([out_batch, out_channel, out_height,
-                     out_width]).float().cuda()
+                     out_width], dtype=x.dtype, device=x.device)
 
     h[:, :, 0::2, 0::2] = x1 - x2 - x3 + x4
     h[:, :, 1::2, 0::2] = x1 - x2 + x3 - x4
