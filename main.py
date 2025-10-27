@@ -2,7 +2,7 @@ import os
 import torch
 import argparse
 from torch.backends import cudnn
-from models.MRDNet import build_net
+from models.MRDNet import build_net, MRDNet, MRDNetPlus
 from train import _train
 from eval import _eval
 
@@ -20,7 +20,14 @@ def main(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    model = build_net(args.model_name)
+    # Instantiate model; allow optional DFD activation via command-line flag
+    if getattr(args, 'use_dfd', False):
+        if args.model_name == 'MRDNetPlus':
+            model = MRDNetPlus(num_res=20, use_dfd=True)
+        else:
+            model = MRDNet(use_dfd=True)
+    else:
+        model = build_net(args.model_name)
     # Multi-GPU support: only wrap with DataParallel during training.
     if torch.cuda.is_available():
         if args.mode == 'train' and torch.cuda.device_count() > 1:
@@ -56,6 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
     parser.add_argument('--train_proportion', type=float, default=1.0, help='Proportion of training data to use (0-1]')
+    parser.add_argument('--use_dfd', action='store_true', help='Enable Dynamic Frequency Decomposition (DFD) modules')
     parser.add_argument('--checkpoint_dir', type=str, default='', help='Directory to save checkpoints; overrides default results/<model_name>/weights')
     parser.add_argument('--crop_size', type=int, default=256, help='Training crop size. Set 0 to disable cropping and use full images')
     parser.add_argument('--use_amp', type=bool, default=True, help='Use mixed precision (AMP) to save memory')

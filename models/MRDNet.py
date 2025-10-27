@@ -259,10 +259,22 @@ class RSAM(nn.Module):  # 继承自Module类，里面包括各种深度学习方
 
 
 class MRDNet(nn.Module):
-    def __init__(self, num_res=8):
+    def __init__(self, num_res=8, use_dfd=False):
         super(MRDNet, self).__init__()
 
         base_channel = 32
+
+        # optional DFD modules
+        self.use_dfd = use_dfd
+        if self.use_dfd:
+            # compute DFD features for half and quarter scales (applied on RGB images at those scales)
+            self.DFD_half = DFD(3, base_channel * 2, num_bands=4)
+            self.DFD_quarter = DFD(3, base_channel * 4, num_bands=4)
+            # projection convs to bring concatenated features back to expected channel sizes
+            self.DFD_proj_half = BasicConv(base_channel * 4, base_channel * 2, kernel_size=1, stride=1, relu=False)
+            self.DFD_proj_quarter = BasicConv(base_channel * 8, base_channel * 4, kernel_size=1, stride=1, relu=False)
+            # storage for last dfd maps
+            self.last_dfd_maps = None
 
         # self.DWT = DWT()  # 小波变换
         # self.IWT = IWT()  # 小波逆变换
@@ -339,8 +351,35 @@ class MRDNet(nn.Module):
         x_2 = F.interpolate(x, scale_factor=0.5)  # 下采样，第二层#4,3,128,128
         x_4 = F.interpolate(x_2, scale_factor=0.5)  # 下采样，最小尺寸的，第三层#4,3,64,64
 
+        # Optional: compute DFD features for each scale and integrate with SCM outputs
+        if getattr(self, 'use_dfd', False):
+            try:
+                dfd_half = self.DFD_half(x_2)       # expected: (B, base_channel*2, H/?, W/?)
+                dfd_quarter = self.DFD_quarter(x_4) # expected: (B, base_channel*4, H/?, W/?)
+                self.last_dfd_maps = (dfd_half, dfd_quarter)
+            except Exception:
+                dfd_half = None
+                dfd_quarter = None
+                self.last_dfd_maps = None
+        else:
+            dfd_half = None
+            dfd_quarter = None
+
         z2 = self.SCM2(x_2)  # 4,64,128,128----16,64,64,64
         z4 = self.SCM1(x_4)  # 4,128,64,64----16,128,32,32
+
+        # if DFD computed, concatenate and project back to expected channels
+        if dfd_half is not None:
+            # align spatial sizes if needed
+            if dfd_half.shape[-2:] != z2.shape[-2:]:
+                dfd_half = F.interpolate(dfd_half, size=z2.shape[-2:], mode='bilinear', align_corners=False)
+            z2 = torch.cat([z2, dfd_half], dim=1)
+            z2 = self.DFD_proj_half(z2)
+        if dfd_quarter is not None:
+            if dfd_quarter.shape[-2:] != z4.shape[-2:]:
+                dfd_quarter = F.interpolate(dfd_quarter, size=z4.shape[-2:], mode='bilinear', align_corners=False)
+            z4 = torch.cat([z4, dfd_quarter], dim=1)
+            z4 = self.DFD_proj_quarter(z4)
 
         # '''加入小波变换'''
         # x1 = x

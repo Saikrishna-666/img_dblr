@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 # from models.MRDNet import DWT, IWT
@@ -133,3 +134,81 @@ class Wavelet_ResBlock(nn.Module):
         res2 = self.Conv(res2)  # 16,32,128,128
         res2 = self.IWT(res2)  # 4,32,256,256
         return self.main(x) + res2 + x
+
+
+class DFD(nn.Module):
+    """
+    Dynamic Frequency Decomposition (DFD)
+
+    - Learns a small set of band-specific extractors (implemented as small convs)
+    - Produces K band-specific feature maps
+    - Computes a spatial gating map over bands and mixes band-specific processed features
+
+    Simple, efficient, and differentiable.
+    """
+    def __init__(self, in_channels, out_channels, num_bands=4):
+        super(DFD, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.num_bands = num_bands
+
+        # band extractors (small convs)
+        self.band_convs = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=True),
+                nn.ReLU(inplace=True)
+            ) for _ in range(num_bands)
+        ])
+
+        # band-specific lightweight processor
+        self.band_proc = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=True),
+                nn.ReLU(inplace=True)
+            ) for _ in range(num_bands)
+        ])
+
+        # gating network: project input to K attention maps
+        mid = max(out_channels // 2, 8)
+        self.gate = nn.Sequential(
+            nn.Conv2d(in_channels, mid, kernel_size=3, padding=1, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, num_bands, kernel_size=1, bias=True)
+        )
+
+        # final mixer
+        self.mixer = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=True)
+
+        # store last outputs for inspection
+        self.last_band_feats = None
+        self.last_attn = None
+
+    def forward(self, x):
+        # compute band features
+        bands = []
+        for conv, proc in zip(self.band_convs, self.band_proc):
+            b = conv(x)
+            b = proc(b)
+            bands.append(b)
+
+        # stack B x K x C x H x W
+        stacked = torch.stack(bands, dim=1)
+
+        # gating logits: B x K x H x W
+        logits = self.gate(x)
+        if logits.shape[-2:] != stacked.shape[-2:]:
+            logits = F.interpolate(logits, size=stacked.shape[-2:], mode='bilinear', align_corners=False)
+
+        attn = torch.softmax(logits, dim=1)  # across bands
+
+        # apply attention and sum across bands
+        attn_exp = attn.unsqueeze(2)  # B x K x 1 x H x W
+        mixed = (stacked * attn_exp).sum(dim=1)  # B x C x H x W
+
+        out = self.mixer(mixed)
+
+        # store for inspection
+        self.last_band_feats = bands
+        self.last_attn = attn
+
+        return out
