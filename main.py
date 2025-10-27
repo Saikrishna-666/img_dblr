@@ -2,7 +2,7 @@ import os
 import torch
 import argparse
 from torch.backends import cudnn
-from models.MRDNet import build_net, MRDNet, MRDNetPlus
+from models.MRDNet import build_net, MRDNet
 from train import _train
 from eval import _eval
 
@@ -20,12 +20,9 @@ def main(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    # Instantiate model; allow optional DFD activation via command-line flag
-    if getattr(args, 'use_dfd', False):
-        if args.model_name == 'MRDNetPlus':
-            model = MRDNetPlus(num_res=20, use_dfd=True)
-        else:
-            model = MRDNet(use_dfd=True)
+    # Instantiate model; allow optional DFD activation via command-line flag (MRDNet only)
+    if getattr(args, 'use_dfd', False) and args.model_name == 'MRDNet':
+        model = MRDNet(use_dfd=True)
     else:
         model = build_net(args.model_name)
     # Multi-GPU support: only wrap with DataParallel during training.

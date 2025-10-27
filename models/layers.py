@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.functional as F
 
 
 # from models.MRDNet import DWT, IWT
@@ -78,8 +79,8 @@ def iwt_init(x):
     x3 = x[out_batch * 2:out_batch * 3, :, :, :] / 2
     x4 = x[out_batch * 3:out_batch * 4, :, :, :] / 2
 
-    h = torch.zeros([out_batch, out_channel, out_height,
-                     out_width]).float().cuda()
+    # Allocate output on the same device/dtype as input for CPU/GPU compatibility
+    h = torch.zeros([out_batch, out_channel, out_height, out_width], dtype=x.dtype, device=x.device)
 
     h[:, :, 0::2, 0::2] = x1 - x2 - x3 + x4
     h[:, :, 1::2, 0::2] = x1 - x2 + x3 - x4
@@ -134,3 +135,64 @@ class Wavelet_ResBlock(nn.Module):
         res2 = self.Conv(res2)  # 16,32,128,128
         res2 = self.IWT(res2)  # 4,32,256,256
         return self.main(x) + res2 + x
+
+
+class DFD(nn.Module):
+    """
+    Dynamic Frequency Decomposition (DFD)
+    - K learnable band extractors (3x3 conv + ReLU)
+    - Per-band lightweight processor (1x1 conv + ReLU)
+    - Spatial gating over bands (softmax across K)
+    - Mixer to combine attended bands into out_channels
+    """
+    def __init__(self, in_channels: int, out_channels: int, num_bands: int = 4):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.num_bands = num_bands
+
+        self.band_convs = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=True),
+                nn.ReLU(inplace=True)
+            ) for _ in range(num_bands)
+        ])
+
+        self.band_proc = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=True),
+                nn.ReLU(inplace=True)
+            ) for _ in range(num_bands)
+        ])
+
+        mid = max(out_channels // 2, 8)
+        self.gate = nn.Sequential(
+            nn.Conv2d(in_channels, mid, kernel_size=3, padding=1, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, num_bands, kernel_size=1, bias=True)
+        )
+
+        self.mixer = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=True)
+
+        self.last_band_feats = None
+        self.last_attn = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        bands = []
+        for conv, proc in zip(self.band_convs, self.band_proc):
+            b = proc(conv(x))
+            bands.append(b)
+
+        stacked = torch.stack(bands, dim=1)  # (B, K, C, H, W)
+
+        logits = self.gate(x)  # (B, K, H, W)
+        if logits.shape[-2:] != stacked.shape[-2:]:
+            logits = F.interpolate(logits, size=stacked.shape[-2:], mode='bilinear', align_corners=False)
+        attn = torch.softmax(logits, dim=1)
+
+        mixed = (stacked * attn.unsqueeze(2)).sum(dim=1)  # (B, C, H, W)
+        out = self.mixer(mixed)
+
+        self.last_band_feats = bands
+        self.last_attn = attn
+        return out

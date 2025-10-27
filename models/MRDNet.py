@@ -264,27 +264,15 @@ class MRDNet(nn.Module):
 
         base_channel = 32
 
-<<<<<<< HEAD
-        # optional DFD modules
-        self.use_dfd = use_dfd
-        if self.use_dfd:
-            # compute DFD features for half and quarter scales (applied on RGB images at those scales)
-            self.DFD_half = DFD(3, base_channel * 2, num_bands=4)
-            self.DFD_quarter = DFD(3, base_channel * 4, num_bands=4)
-            # projection convs to bring concatenated features back to expected channel sizes
-            self.DFD_proj_half = BasicConv(base_channel * 4, base_channel * 2, kernel_size=1, stride=1, relu=False)
-            self.DFD_proj_quarter = BasicConv(base_channel * 8, base_channel * 4, kernel_size=1, stride=1, relu=False)
-            # storage for last dfd maps
-=======
         # option to enable Dynamic Frequency Decomposition
         self.use_dfd = use_dfd
         if self.use_dfd:
-            # produce DFD features for full, half and quarter resolution inputs
-            self.DFD_full = DFD(3, base_channel, num_bands=4)
+            # DFD for half and quarter scales
             self.DFD_half = DFD(3, base_channel * 2, num_bands=4)
             self.DFD_quarter = DFD(3, base_channel * 4, num_bands=4)
-            # placeholder where last computed dfd maps are stored
->>>>>>> 93420e3ae2dd23853c33bb0ee0a504dc6387cafd
+            # projection to expected channel sizes after concatenation
+            self.DFD_proj_half = BasicConv(base_channel * 4, base_channel * 2, kernel_size=1, stride=1, relu=False)
+            self.DFD_proj_quarter = BasicConv(base_channel * 8, base_channel * 4, kernel_size=1, stride=1, relu=False)
             self.last_dfd_maps = None
 
         # self.DWT = DWT()  # 小波变换
@@ -362,33 +350,18 @@ class MRDNet(nn.Module):
         x_2 = F.interpolate(x, scale_factor=0.5)  # 下采样，第二层#4,3,128,128
         x_4 = F.interpolate(x_2, scale_factor=0.5)  # 下采样，最小尺寸的，第三层#4,3,64,64
 
-<<<<<<< HEAD
         # Optional: compute DFD features for each scale and integrate with SCM outputs
+        dfd_half = None
+        dfd_quarter = None
         if getattr(self, 'use_dfd', False):
             try:
-                dfd_half = self.DFD_half(x_2)       # expected: (B, base_channel*2, H/?, W/?)
-                dfd_quarter = self.DFD_quarter(x_4) # expected: (B, base_channel*4, H/?, W/?)
+                dfd_half = self.DFD_half(x_2)
+                dfd_quarter = self.DFD_quarter(x_4)
                 self.last_dfd_maps = (dfd_half, dfd_quarter)
             except Exception:
                 dfd_half = None
                 dfd_quarter = None
                 self.last_dfd_maps = None
-        else:
-            dfd_half = None
-            dfd_quarter = None
-=======
-        # Optional: compute Dynamic Frequency Decomposition maps for each scale
-        if getattr(self, 'use_dfd', False):
-            try:
-                dfd_full = self.DFD_full(x)
-                dfd_half = self.DFD_half(x_2)
-                dfd_quarter = self.DFD_quarter(x_4)
-                # store last maps for external usage / debugging. They are feature tensors
-                self.last_dfd_maps = (dfd_full, dfd_half, dfd_quarter)
-            except Exception:
-                # keep compatibility if DFD was not properly instantiated
-                self.last_dfd_maps = None
->>>>>>> 93420e3ae2dd23853c33bb0ee0a504dc6387cafd
 
         z2 = self.SCM2(x_2)  # 4,64,128,128----16,64,64,64
         z4 = self.SCM1(x_4)  # 4,128,64,64----16,128,32,32
