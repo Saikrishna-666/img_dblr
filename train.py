@@ -43,24 +43,35 @@ def _train(model, args):
         # 1) Full checkpoint dict: {'model': sd, 'optimizer': sd, 'scheduler': sd, 'epoch': int}
         # 2) Weights-only dict under 'model': {'model': sd}
         # 3) Raw state_dict: {...params...}
-        if isinstance(state, dict) and 'model' in state and isinstance(state['model'], dict):
-            # Handle DataParallel 'module.' prefix differences
-            def _load_model(sd):
-                try:
-                    model.load_state_dict(sd)
-                except RuntimeError:
-                    # Try removing/adding 'module.' prefix
-                    from collections import OrderedDict
-                    new_sd = OrderedDict()
-                    if next(iter(sd)).startswith('module.'):
-                        for k, v in sd.items():
-                            new_sd[k.replace('module.', '', 1)] = v
-                    else:
-                        for k, v in sd.items():
-                            new_sd['module.' + k] = v
-                    model.load_state_dict(new_sd)
 
-            _load_model(state['model'])
+        def _load_state_into_model(sd: dict):
+            """Load a state_dict into model with best-effort compatibility.
+            - Handles DataParallel prefix differences.
+            - Uses strict=False to allow architecture changes (e.g., enabling DFD later).
+            - Prints missing/unexpected keys for transparency.
+            """
+            try:
+                missing, unexpected = model.load_state_dict(sd, strict=False)
+            except RuntimeError:
+                # Try removing/adding 'module.' prefix
+                from collections import OrderedDict
+                new_sd = OrderedDict()
+                first_key = next(iter(sd))
+                if first_key.startswith('module.'):
+                    for k, v in sd.items():
+                        new_sd[k.replace('module.', '', 1)] = v
+                else:
+                    for k, v in sd.items():
+                        new_sd['module.' + k] = v
+                missing, unexpected = model.load_state_dict(new_sd, strict=False)
+            # Log summary
+            if missing:
+                print(f"[Resume] Missing keys (initialized randomly): {len(missing)} e.g., {missing[:5]}")
+            if unexpected:
+                print(f"[Resume] Unexpected keys (ignored): {len(unexpected)} e.g., {unexpected[:5]}")
+
+        if isinstance(state, dict) and 'model' in state and isinstance(state['model'], dict):
+            _load_state_into_model(state['model'])
             restored = ['model']
             if 'optimizer' in state and isinstance(state['optimizer'], dict):
                 try:
@@ -82,20 +93,7 @@ def _train(model, args):
             print('Resume: restored ' + ', '.join(restored))
         elif isinstance(state, dict):
             # Assume it's a plain model state_dict
-            def _load_model_raw(sd):
-                try:
-                    model.load_state_dict(sd)
-                except RuntimeError:
-                    from collections import OrderedDict
-                    new_sd = OrderedDict()
-                    if next(iter(sd)).startswith('module.'):
-                        for k, v in sd.items():
-                            new_sd[k.replace('module.', '', 1)] = v
-                    else:
-                        for k, v in sd.items():
-                            new_sd['module.' + k] = v
-                    model.load_state_dict(new_sd)
-            _load_model_raw(state)
+            _load_state_into_model(state)
             # Use explicit start_epoch if provided
             epoch = max(1, int(getattr(args, 'start_epoch', 1)))
             print('Resume: restored model (weights-only state_dict)')
