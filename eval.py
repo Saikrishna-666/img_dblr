@@ -55,6 +55,9 @@ def _eval(model, args):
         # Main Evaluation
         saved_count = 0
         save_limit = getattr(args, 'save_limit', 0) or 0
+        # Per-folder (scene) saving limit: default 0 means unlimited
+        per_scene_limit = getattr(args, 'save_per_scene_limit', 0) or 0
+        saved_per_scene = {}
         for iter_idx, data in enumerate(tqdm(dataloader, desc='Evaluate', leave=False)):
             input_img, label_img, name = data
 
@@ -75,7 +78,16 @@ def _eval(model, args):
             pred_numpy = pred_clip.squeeze(0).cpu().numpy()
             label_numpy = label_img.squeeze(0).cpu().numpy()
 
-            if args.save_image and (save_limit == 0 or saved_count < save_limit):
+            # Determine scene/subfolder from dataset-provided name (e.g., "scene/filename.png")
+            scene = os.path.dirname(name[0]) if isinstance(name, (list, tuple)) else os.path.dirname(name)
+
+            # Enforce per-scene limit if set
+            can_save_scene = True
+            if per_scene_limit > 0:
+                cnt = saved_per_scene.get(scene, 0)
+                can_save_scene = cnt < per_scene_limit
+
+            if args.save_image and (save_limit == 0 or saved_count < save_limit) and can_save_scene:
                 save_name = os.path.join(args.result_dir, name[0])
                 # Create subdirectories if name contains path segments (e.g., scene/filename.png)
                 save_dir = os.path.dirname(save_name)
@@ -85,6 +97,8 @@ def _eval(model, args):
                 pred_img = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
                 pred_img.save(save_name)
                 saved_count += 1
+                if per_scene_limit > 0:
+                    saved_per_scene[scene] = saved_per_scene.get(scene, 0) + 1
 
             psnr = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
             psnr_adder(psnr)
