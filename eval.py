@@ -14,9 +14,19 @@ def _eval(model, args):
     state = torch.load(args.test_model, map_location=device)
     # Accept formats: {'model': sd} or raw sd
     def _load_model(sd):
-        try:
-            model.load_state_dict(sd)
-        except RuntimeError:
+        """Best-effort load with prefix adjustment and diagnostics.
+        Uses strict=False so partially compatible checkpoints still load,
+        while reporting missing and unexpected keys for debugging.
+        """
+        def _attempt(load_sd):
+            try:
+                missing, unexpected = model.load_state_dict(load_sd, strict=False)
+            except RuntimeError as e:
+                return False, [], [], str(e)
+            return True, missing, unexpected, ''
+
+        ok, missing, unexpected, err = _attempt(sd)
+        if not ok:
             from collections import OrderedDict
             new_sd = OrderedDict()
             first_key = next(iter(sd))
@@ -26,7 +36,17 @@ def _eval(model, args):
             else:
                 for k, v in sd.items():
                     new_sd['module.' + k] = v
-            model.load_state_dict(new_sd)
+            ok, missing, unexpected, err = _attempt(new_sd)
+        # Diagnostics
+        if not ok:
+            print('[Checkpoint] Failed to load state_dict:', err)
+        else:
+            if missing:
+                print(f'[Checkpoint] Missing {len(missing)} keys (first 8): {missing[:8]}')
+            if unexpected:
+                print(f'[Checkpoint] Unexpected {len(unexpected)} keys (first 8): {unexpected[:8]}')
+            if not missing and not unexpected:
+                print('[Checkpoint] Loaded fully compatible state_dict.')
 
     if isinstance(state, dict) and 'model' in state:
         _load_model(state['model'])
