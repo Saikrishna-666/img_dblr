@@ -4,9 +4,23 @@ from tqdm import tqdm
 
 from data import train_dataloader
 from utils import Adder, Timer, check_lr
-from torch.utils.tensorboard import SummaryWriter
 from valid import _valid
 import torch.nn.functional as F
+
+# Defer tensorboard import to runtime (avoids errors in test-only runs)
+_TB_AVAILABLE = True
+try:
+    from torch.utils.tensorboard import SummaryWriter  # type: ignore
+except Exception:
+    _TB_AVAILABLE = False
+
+    class SummaryWriter:  # Minimal no-op fallback
+        def __init__(self, *args, **kwargs):
+            print('[TensorBoard] Unavailable; using no-op SummaryWriter')
+        def add_scalar(self, *a, **kw):
+            pass
+        def close(self):
+            pass
 
 
 def _train(model, args):
@@ -100,7 +114,7 @@ def _train(model, args):
         else:
             raise ValueError('Unrecognized checkpoint format for resume: %s' % type(state))
 
-    writer = SummaryWriter()  # 实例化摘要和文件
+    writer = SummaryWriter()  # 实例化摘要和文件 (may be no-op if tensorboard missing)
     # Mixed precision scaler (enabled when CUDA is available and user allows AMP)
     use_amp = torch.cuda.is_available() and getattr(args, 'use_amp', True)
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
